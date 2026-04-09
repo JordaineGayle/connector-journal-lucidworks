@@ -7,6 +7,7 @@ import com.jordaine.connector.crawl.FileCheckpointStore;
 import com.jordaine.connector.crawl.PostCrawler;
 import com.jordaine.connector.output.JsonlDocumentWriter;
 import com.jordaine.connector.transform.PostDocumentMapper;
+import com.jordaine.connector.util.RateLimiter;
 import com.jordaine.connector.util.RetryExecutor;
 
 public class Main {
@@ -14,9 +15,12 @@ public class Main {
         try {
             ConnectorConfig config = ConnectorConfig.fromEnvironment();
 
+            RateLimiter rateLimiter = new RateLimiter(config.getRequestsPerMinute());
+
             DummyJsonClient client = new DummyJsonClient(
                     config.getBaseUrl(),
-                    config.getPostsEndpoint()
+                    config.getPostsEndpoint(),
+                    rateLimiter
             );
 
             PostDocumentMapper mapper = new PostDocumentMapper();
