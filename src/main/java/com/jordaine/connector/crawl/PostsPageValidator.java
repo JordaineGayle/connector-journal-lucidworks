@@ -6,8 +6,17 @@ import com.jordaine.connector.model.PostsResponse;
 
 import java.util.List;
 
+/**
+ * Validates that a fetched posts page is safe to process.
+ *
+ * <p>The crawler uses this guard to reject inconsistent pagination metadata before the sink or
+ * checkpoint state can be updated.
+ */
 public class PostsPageValidator {
 
+    /**
+     * Validates one posts page against the originally requested pagination arguments.
+     */
     public void validate(int requestedSkip, int requestedLimit, PostsResponse response)
             throws RetryableConnectorException, NonRetryableConnectorException {
         if (requestedSkip < 0) {

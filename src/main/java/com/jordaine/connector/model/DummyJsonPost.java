@@ -6,6 +6,12 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * Source DTO for a DummyJSON post response.
+ *
+ * <p>The upstream API has changed the shape of the {@code reactions} field over time, so this
+ * model normalizes both numeric and object-style payloads into a single {@code reactionCount}.
+ */
 @JsonIgnoreProperties(ignoreUnknown = true)
 public class DummyJsonPost {
     private int id;
@@ -55,6 +61,9 @@ public class DummyJsonPost {
         return reactionCount;
     }
 
+    /**
+     * Normalizes the upstream reactions payload into a single aggregate count.
+     */
     @JsonProperty("reactions")
     public void setReactions(Object reactions) {
         if (reactions == null) {
@@ -93,6 +102,9 @@ public class DummyJsonPost {
         this.userId = userId;
     }
 
+    /**
+     * Safely reads a numeric map value, defaulting to zero when the value is absent or non-numeric.
+     */
     private int toInt(Object value) {
         if (value instanceof Number number) {
             return number.intValue();

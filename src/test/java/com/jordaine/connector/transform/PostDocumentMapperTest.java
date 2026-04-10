@@ -8,6 +8,9 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+/**
+ * Tests mapping from source post payloads into normalized connector documents.
+ */
 class PostDocumentMapperTest {
 
     @Test

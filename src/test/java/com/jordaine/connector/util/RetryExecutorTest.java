@@ -9,6 +9,9 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+/**
+ * Tests retry classification, retry limits, and delay behavior in {@link RetryExecutor}.
+ */
 class RetryExecutorTest {
 
     @Test

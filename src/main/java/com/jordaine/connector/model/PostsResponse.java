@@ -4,6 +4,9 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 
 import java.util.List;
 
+/**
+ * Source DTO for one paginated posts response.
+ */
 @JsonIgnoreProperties(ignoreUnknown = true)
 public class PostsResponse {
     private List<DummyJsonPost> posts;

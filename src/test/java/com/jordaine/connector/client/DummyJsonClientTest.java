@@ -16,6 +16,9 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+/**
+ * Tests HTTP status classification and response parsing in {@link DummyJsonClient}.
+ */
 class DummyJsonClientTest {
     private MockWebServer server;
     private DummyJsonClient client;

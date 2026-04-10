@@ -8,9 +8,15 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.StringJoiner;
 
+/**
+ * Maps DummyJSON posts into the connector's normalized document schema.
+ */
 public class PostDocumentMapper implements DocumentMapper<DummyJsonPost, ConnectorDocument> {
     private final String sourceUrlPrefix;
 
+    /**
+     * Creates a mapper that can build canonical source URLs for each post.
+     */
     public PostDocumentMapper(String baseUrl, String postsEndpoint) {
         this.sourceUrlPrefix = normalizeBaseUrl(baseUrl) + normalizeEndpoint(postsEndpoint);
     }
@@ -33,6 +39,9 @@ public class PostDocumentMapper implements DocumentMapper<DummyJsonPost, Connect
         return document;
     }
 
+    /**
+     * Builds the aggregated free-text field used for downstream indexing and search.
+     */
     private String buildSearchText(DummyJsonPost post) {
         List<String> parts = new ArrayList<>();
 
@@ -60,10 +69,16 @@ public class PostDocumentMapper implements DocumentMapper<DummyJsonPost, Connect
         return String.join(" ", parts);
     }
 
+    /**
+     * Builds a stable URL back to the source record.
+     */
     private String buildSourceUrl(int postId) {
         return sourceUrlPrefix + "/" + postId;
     }
 
+    /**
+     * Normalizes the configured base URL so it can be safely combined with endpoint paths.
+     */
     private String normalizeBaseUrl(String baseUrl) {
         if (baseUrl == null || baseUrl.isBlank()) {
             throw new IllegalArgumentException("baseUrl must not be blank");
@@ -74,6 +89,9 @@ public class PostDocumentMapper implements DocumentMapper<DummyJsonPost, Connect
                 : baseUrl;
     }
 
+    /**
+     * Normalizes the configured endpoint to a no-trailing-slash path that begins with '/'.
+     */
     private String normalizeEndpoint(String endpoint) {
         if (endpoint == null || endpoint.isBlank()) {
             throw new IllegalArgumentException("postsEndpoint must not be blank");

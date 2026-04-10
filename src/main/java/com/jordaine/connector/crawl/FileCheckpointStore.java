@@ -12,12 +12,21 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.Map;
 
+/**
+ * File-backed {@link CrawlCheckpointStore} that persists the current skip offset as JSON.
+ *
+ * <p>The store fails closed when the checkpoint file is malformed and uses a temp-file rewrite to
+ * avoid leaving a partially written checkpoint on disk.
+ */
 public class FileCheckpointStore implements CrawlCheckpointStore {
     private static final Logger LOGGER = LoggerFactory.getLogger(FileCheckpointStore.class);
 
     private final Path checkpointFile;
     private final ObjectMapper objectMapper;
 
+    /**
+     * Creates a checkpoint store that reads from and writes to the provided file.
+     */
     public FileCheckpointStore(Path checkpointFile) {
         this.checkpointFile = checkpointFile;
         this.objectMapper = new ObjectMapper();
@@ -30,6 +39,7 @@ public class FileCheckpointStore implements CrawlCheckpointStore {
                 return 0;
             }
 
+            // The file stores a tiny JSON object of the form {"skip": <number>}.
             Map<?, ?> data = objectMapper.readValue(Files.readAllBytes(checkpointFile), Map.class);
             Object skipValue = data.get("skip");
 
@@ -63,6 +73,7 @@ public class FileCheckpointStore implements CrawlCheckpointStore {
                 Files.createDirectories(parent);
             }
 
+            // Write through a sibling temp file so the checkpoint is either fully old or fully new.
             Path tempFile = checkpointFile.resolveSibling(checkpointFile.getFileName() + ".tmp");
             try (BufferedWriter writer = Files.newBufferedWriter(tempFile)) {
                 objectMapper.writeValue(writer, Map.of("skip", skip));

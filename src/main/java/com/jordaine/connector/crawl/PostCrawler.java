@@ -14,6 +14,13 @@ import org.slf4j.LoggerFactory;
 import java.util.ArrayList;
 import java.util.List;
 
+/**
+ * Coordinates checkpointed pagination from the source API through mapping and persistence.
+ *
+ * <p>The crawler guarantees that a checkpoint advances only after a page has been written
+ * successfully. This gives the connector at-least-once processing semantics while letting the
+ * downstream sink enforce idempotence by stable document id.
+ */
 public class PostCrawler {
     private static final Logger LOGGER = LoggerFactory.getLogger(PostCrawler.class);
 
@@ -43,10 +50,15 @@ public class PostCrawler {
         this.pageValidator = pageValidator;
     }
 
+    /**
+     * Runs a single crawl from the current checkpoint until the source reports no more posts.
+     */
     public void crawl() throws Exception {
         int skip = checkpointStore.loadSkip();
         int limit = config.getPageSize();
         int processedCount = 0;
+
+        writer.beginRun(config.getOutputFile(), skip);
 
         LOGGER.info("Starting crawl from checkpoint skip={}", skip);
 
@@ -56,6 +68,11 @@ public class PostCrawler {
             PostsResponse response = retryExecutor.execute(
                     () -> {
                         PostsResponse fetched = client.fetchPosts(limit, currentSkip);
+                        // DummyJSON returns an empty terminal page with total == skip and limit == 0.
+                        // That state means "crawl complete" and should not be retried as invalid.
+                        if (isCompletedTerminalPage(currentSkip, fetched)) {
+                            return fetched;
+                        }
                         pageValidator.validate(currentSkip, limit, fetched);
                         return fetched;
                     },
@@ -89,5 +106,16 @@ public class PostCrawler {
         }
 
         LOGGER.info("Crawl completed. Total posts written in this run: {}", processedCount);
+    }
+
+    /**
+     * Accepts the source's terminal empty page even when its reported limit is zero.
+     */
+    private boolean isCompletedTerminalPage(int requestedSkip, PostsResponse response) {
+        return response != null
+                && response.getSkip() == requestedSkip
+                && response.getTotal() == requestedSkip
+                && response.getPosts() != null
+                && response.getPosts().isEmpty();
     }
 }

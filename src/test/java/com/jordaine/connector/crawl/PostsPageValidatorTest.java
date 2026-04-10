@@ -10,6 +10,9 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
+/**
+ * Tests pagination safety checks in {@link PostsPageValidator}.
+ */
 class PostsPageValidatorTest {
 
     @Test

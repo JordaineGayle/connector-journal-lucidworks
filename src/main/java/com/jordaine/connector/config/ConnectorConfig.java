@@ -4,6 +4,13 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Duration;
 
+/**
+ * Immutable runtime configuration for the connector.
+ *
+ * <p>The config captures both crawl behavior (page size, retries, polling cadence) and persistence
+ * locations (checkpoint and output files) so the rest of the application can operate without
+ * reading environment variables directly.
+ */
 public class ConnectorConfig {
     private final String baseUrl;
     private final String postsEndpoint;
@@ -13,7 +20,11 @@ public class ConnectorConfig {
     private final int requestsPerMinute;
     private final Path checkpointFile;
     private final Path outputFile;
+    private final int pollIntervalSeconds;
 
+    /**
+     * Creates a config with polling disabled.
+     */
     public ConnectorConfig(
             String baseUrl,
             String postsEndpoint,
@@ -23,6 +34,33 @@ public class ConnectorConfig {
             int requestsPerMinute,
             Path checkpointFile,
             Path outputFile
+    ) {
+        this(
+                baseUrl,
+                postsEndpoint,
+                pageSize,
+                maxRetries,
+                initialBackoff,
+                requestsPerMinute,
+                checkpointFile,
+                outputFile,
+                0
+        );
+    }
+
+    /**
+     * Creates a fully specified config instance.
+     */
+    public ConnectorConfig(
+            String baseUrl,
+            String postsEndpoint,
+            int pageSize,
+            int maxRetries,
+            Duration initialBackoff,
+            int requestsPerMinute,
+            Path checkpointFile,
+            Path outputFile,
+            int pollIntervalSeconds
     ) {
         if (baseUrl == null || baseUrl.isBlank()) {
             throw new IllegalArgumentException("baseUrl must not be blank");
@@ -48,6 +86,9 @@ public class ConnectorConfig {
         if (outputFile == null) {
             throw new IllegalArgumentException("outputFile must not be null");
         }
+        if (pollIntervalSeconds < 0) {
+            throw new IllegalArgumentException("pollIntervalSeconds must be >= 0");
+        }
 
         this.baseUrl = baseUrl;
         this.postsEndpoint = postsEndpoint;
@@ -57,14 +98,20 @@ public class ConnectorConfig {
         this.requestsPerMinute = requestsPerMinute;
         this.checkpointFile = checkpointFile;
         this.outputFile = outputFile;
+        this.pollIntervalSeconds = pollIntervalSeconds;
     }
 
+    /**
+     * Reads configuration from environment variables, applying the documented defaults when a
+     * variable is absent.
+     */
     public static ConnectorConfig fromEnvironment() {
         String baseUrl = getEnv("API_BASE_URL", "https://dummyjson.com");
         String postsEndpoint = getEnv("POSTS_ENDPOINT", "/posts");
         int pageSize = getEnvInt("PAGE_SIZE", 20);
         int maxRetries = getEnvInt("MAX_RETRIES", 5);
         int requestsPerMinute = getEnvInt("REQUESTS_PER_MINUTE", 90);
+        int pollIntervalSeconds = getEnvInt("POLL_INTERVAL_SECONDS", 0);
         long initialBackoffMillis = getEnvLong("INITIAL_BACKOFF_MILLIS", 1000L);
 
         Path checkpointFile = Paths.get(getEnv("CHECKPOINT_FILE", "data/checkpoint.json"));
@@ -78,7 +125,8 @@ public class ConnectorConfig {
                 Duration.ofMillis(initialBackoffMillis),
                 requestsPerMinute,
                 checkpointFile,
-                outputFile
+                outputFile,
+                pollIntervalSeconds
         );
     }
 
@@ -143,5 +191,9 @@ public class ConnectorConfig {
 
     public Path getOutputFile() {
         return outputFile;
+    }
+
+    public int getPollIntervalSeconds() {
+        return pollIntervalSeconds;
     }
 }

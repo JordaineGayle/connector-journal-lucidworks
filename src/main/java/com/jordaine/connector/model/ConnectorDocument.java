@@ -3,6 +3,12 @@ package com.jordaine.connector.model;
 import java.time.Instant;
 import java.util.List;
 
+/**
+ * Normalized connector record written to the output sink.
+ *
+ * <p>The {@code id} field is the stable logical identifier used for idempotent upserts, while
+ * {@code fetchedAt} records when this representation was produced by the connector.
+ */
 public class ConnectorDocument {
     private String id;
     private String sourceType;

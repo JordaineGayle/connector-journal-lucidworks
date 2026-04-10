@@ -16,6 +16,13 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 
+/**
+ * {@link PostsClient} implementation backed by the DummyJSON posts API.
+ *
+ * <p>The client applies request rate limiting before each call, classifies upstream failures into
+ * retryable and non-retryable categories, and deserializes the JSON response into the connector's
+ * page model.
+ */
 public class DummyJsonClient implements PostsClient {
     private static final Logger LOGGER = LoggerFactory.getLogger(DummyJsonClient.class);
 
@@ -25,6 +32,9 @@ public class DummyJsonClient implements PostsClient {
     private final String postsEndpoint;
     private final RateLimiter rateLimiter;
 
+    /**
+     * Creates a client for the configured posts endpoint.
+     */
     public DummyJsonClient(String baseUrl, String postsEndpoint, RateLimiter rateLimiter) {
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(10))
@@ -55,6 +65,7 @@ public class DummyJsonClient implements PostsClient {
         try {
             response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
         } catch (IOException ex) {
+            // Network failures are transient in nature and should be retried by the caller.
             throw new RetryableConnectorException("Network failure while fetching posts", ex);
         } catch (InterruptedException ex) {
             Thread.currentThread().interrupt();
@@ -77,12 +88,14 @@ public class DummyJsonClient implements PostsClient {
         }
 
         if (statusCode >= 500 && statusCode <= 599) {
+            // Server-side failures may succeed on a later attempt.
             throw new RetryableConnectorException(
                     "Failed to fetch posts. HTTP " + statusCode + ". Body: " + response.body()
             );
         }
 
         if (statusCode < 200 || statusCode >= 300) {
+            // Client-side validation and authorization errors should fail the run immediately.
             throw new NonRetryableConnectorException(
                     "Failed to fetch posts. HTTP " + statusCode + ". Body: " + response.body()
             );
@@ -95,6 +108,9 @@ public class DummyJsonClient implements PostsClient {
         }
     }
 
+    /**
+     * Normalizes the configured base URL so request construction can safely concatenate paths.
+     */
     private String stripTrailingSlash(String value) {
         if (value == null || value.isBlank()) {
             throw new IllegalArgumentException("baseUrl must not be blank");
@@ -105,6 +121,9 @@ public class DummyJsonClient implements PostsClient {
                 : value;
     }
 
+    /**
+     * Ensures the configured endpoint begins with a slash.
+     */
     private String normalizeEndpoint(String value) {
         if (value == null || value.isBlank()) {
             throw new IllegalArgumentException("postsEndpoint must not be blank");
@@ -113,6 +132,10 @@ public class DummyJsonClient implements PostsClient {
         return value.startsWith("/") ? value : "/" + value;
     }
 
+    /**
+     * Parses a numeric Retry-After value in seconds, returning {@code null} when the header is
+     * absent or unusable.
+     */
     private Duration parseRetryAfter(String retryAfterHeader) {
         if (retryAfterHeader == null || retryAfterHeader.isBlank()) {
             return null;

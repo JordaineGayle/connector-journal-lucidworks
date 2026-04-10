@@ -6,6 +6,8 @@ This project implements a Java-based connector that discovers, fetches, and tran
 
 The connector focuses on the **posts** endpoint and is designed with production-oriented ingestion principles, including reliability, fault tolerance, and extensibility.
 
+The core contracts and runtime-critical classes are also documented in the source with Javadoc so the connector's operational guarantees are visible in the code, not only in this README.
+
 ---
 
 ## Submission checklist
@@ -36,6 +38,12 @@ Run the connector with the default configuration:
 ./gradlew run
 ```
 
+To keep checking for newly appended data on a timer, set a polling interval:
+
+```bash
+POLL_INTERVAL_SECONDS=300 ./gradlew run
+```
+
 With the default DummyJSON source, a fresh run starts at `skip=0`, crawls all available posts, and writes the transformed documents to `output/posts.jsonl`. Progress is checkpointed in `data/checkpoint.json`.
 
 Expected behavior on a fresh run:
@@ -45,7 +53,9 @@ Expected behavior on a fresh run:
 - The output is written as JSON Lines documents to `output/posts.jsonl`
 - The checkpoint file is updated so a later run can resume safely
 
-If the checkpoint already exists, the connector resumes from the saved `skip` value instead of reprocessing from the beginning. For a clean end-to-end run with the defaults, remove `data/checkpoint.json` and `output/posts.jsonl` before running again.
+If the checkpoint already exists, the connector resumes from the saved `skip` value instead of reprocessing from the beginning. The JSONL sink merges documents by stable `id` and rewrites the file atomically, so reruns or repeated batches do not append a second copy of the same logical document. When an incoming batch contains IDs that are already present in `output/posts.jsonl`, the sink logs how many existing documents were replaced and how many new documents were added. If you delete `data/checkpoint.json`, the next run starts from `skip=0` and rebuilds `output/posts.jsonl` from scratch. If the checkpoint indicates progress but `output/posts.jsonl` is missing, the connector fails fast rather than silently producing an incomplete file.
+
+When polling is enabled, the connector runs the same crawl repeatedly and logs the configured sleep interval between passes.
 
 ### Run tests
 
@@ -67,6 +77,7 @@ The connector is configurable via environment variables:
 | `MAX_RETRIES` | `5` | Retry attempts |
 | `INITIAL_BACKOFF_MILLIS` | `1000` | Initial retry delay |
 | `REQUESTS_PER_MINUTE` | `90` | Rate limit (below API max of 100) |
+| `POLL_INTERVAL_SECONDS` | `0` | Poll interval in seconds; `0` disables polling |
 | `CHECKPOINT_FILE` | `data/checkpoint.json` | File for storing progress |
 | `OUTPUT_FILE` | `output/posts.jsonl` | Output file |
 
@@ -97,6 +108,7 @@ Key structure decisions:
 - Composability and testability through small abstractions
 - Extensibility for additional endpoints such as comments or users
 - Minimal dependencies with explicit behavior instead of relying on framework magic
+- Source-level Javadoc on core contracts and infrastructure classes so the runtime model is easy to understand from the codebase
 - SOLID-aligned abstractions:
   - `PostsClient` for source access
   - `DocumentMapper<S, D>` for source-to-document mapping
@@ -140,18 +152,21 @@ Key guarantees:
 
 1. **Deterministic pagination with response validation** — Uses `limit` and `skip`, and validates API metadata (`skip`, `limit`, `total`) before processing
 2. **Checkpointing after successful write** — Checkpoint advances only after documents are persisted
-3. **At-least-once processing** — Data may be reprocessed; data is never intentionally skipped
-4. **Retry strategy** — Retries on typed retryable failures (`429`, `5xx`, network/deserialization); exponential backoff with jitter
-5. **Retry-After handling** — Honors server-provided `Retry-After` when present
-6. **Rate limiting** — Enforces requests per minute, configured below API threshold for safety
-7. **Atomic checkpoint updates** — Uses temp file + move to avoid partial checkpoint writes
-8. **Fail-closed behavior** — Corrupt checkpoint or unsafe pages fail the run instead of silently continuing
+3. **Idempotent file writes** — JSONL output merges by document `id`, so repeated batches replace existing records instead of duplicating them
+4. **Fresh-run output reset** — A crawl starting from `skip=0` replaces the JSONL output so the file reflects the latest full snapshot
+5. **At-least-once processing** — Data may be reprocessed; data is never intentionally skipped
+6. **Retry strategy** — Retries on typed retryable failures (`429`, `5xx`, network/deserialization); exponential backoff with jitter
+7. **Retry-After handling** — Honors server-provided `Retry-After` when present
+8. **Rate limiting** — Enforces requests per minute, configured below API threshold for safety
+9. **Atomic checkpoint updates** — Uses temp file + move to avoid partial checkpoint writes
+10. **Fail-closed behavior** — Corrupt checkpoint, missing output on resume, or unsafe pages fail the run instead of silently continuing
+11. **Operational visibility for upserts** — When incoming document IDs already exist in the JSONL snapshot, the sink logs how many records were replaced versus newly added
 
 ### Tradeoffs
 
 Chosen tradeoffs:
 
-- File-based checkpointing for simplicity and reliability
+- File-based checkpointing and JSONL upserts for simplicity and reliability
 - Sequential processing to prioritize correctness over throughput
 - Explicit retry logic for transparency and control
 - Minimal dependencies to keep the operational model easy to understand
@@ -181,6 +196,8 @@ Tests focus on validating core behavior rather than superficial coverage.
 | **HTTP client** | Verifies classification of `429`/`5xx`/`4xx` and malformed payload behavior |
 | **Rate limiter** | Verifies request spacing and configuration validation |
 | **Checkpoint store** | Verifies checkpoint persistence, fail-closed loading, and negative-skip rejection |
+| **JSONL writer** | Verifies idempotent upserts by document `id`, atomic rewrite behavior, and invalid-document rejection |
+| **Main / polling loop** | Verifies one-shot execution by default, opt-in polling behavior, and polling configuration validation |
 
 ### Strategy
 
@@ -209,6 +226,6 @@ With additional time, the connector could include:
 
 ## Summary
 
-This connector prioritizes correctness, reliability, and clarity over unnecessary complexity. It demonstrates how to safely ingest data from an unreliable API while ensuring completeness and recoverability.
+This connector prioritizes correctness, reliability, and clarity over unnecessary complexity. It demonstrates how to safely ingest data from an unreliable API while ensuring completeness, recoverability, and idempotent output behavior.
 
-The design intentionally favors at-least-once processing semantics and checkpoint-based recovery, aligning with the requirement that missing data is unacceptable.
+The design intentionally favors at-least-once fetching, checkpoint-based recovery, and idempotent sink writes, aligning with the requirement that missing data is unacceptable while keeping reruns safe.

@@ -7,6 +7,9 @@ import java.time.Duration;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+/**
+ * Tests request spacing and argument validation in {@link RateLimiter}.
+ */
 class RateLimiterTest {
 
     @Test
