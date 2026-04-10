@@ -8,7 +8,20 @@ The connector focuses on the **posts** endpoint and is designed with production-
 
 ---
 
-## How to run
+## Submission checklist
+
+This README explicitly covers the requested areas:
+
+- How to run the connector
+- Design decisions, including schema, structure, and tradeoffs
+- Testing approach
+- What you'd add with more time
+
+The focus is working code with clear design, and the sections below document the key decisions and tradeoffs made.
+
+---
+
+## How to run the connector
 
 ### Prerequisites
 
@@ -46,9 +59,13 @@ The connector is configurable via environment variables:
 
 ---
 
-## Architecture
+## Design decisions
 
-The connector follows a layered and modular architecture:
+This connector favors clear, working ingestion behavior over unnecessary feature complexity. The design emphasizes explicit contracts, restart safety, and tradeoffs that are easy to reason about.
+
+### Structure
+
+The connector follows a layered and modular structure:
 
 ```
 config      → Configuration management
@@ -58,18 +75,22 @@ transform   → Mapping source → document
 model       → Data models / DTOs
 output      → Document persistence
 util        → Retry + rate limiting utilities
+error       → Typed retryable/non-retryable exceptions
 ```
 
-### Key design principles
+Key structure decisions:
 
-- Separation of concerns
-- Composability and testability
-- Extensibility for additional endpoints (comments, users)
-- Minimal dependencies with explicit behavior
+- Separation of concerns so crawling, transformation, persistence, and retry logic can evolve independently
+- Composability and testability through small abstractions
+- Extensibility for additional endpoints such as comments or users
+- Minimal dependencies with explicit behavior instead of relying on framework magic
+- SOLID-aligned abstractions:
+  - `PostsClient` for source access
+  - `DocumentMapper<S, D>` for source-to-document mapping
+  - `DocumentSink<D>` for output persistence
+  - `CrawlCheckpointStore` for checkpoint persistence
 
----
-
-## Document schema
+### Schema
 
 Each post is transformed into a structured document:
 
@@ -90,28 +111,45 @@ Each post is transformed into a structured document:
 }
 ```
 
-### Design rationale
+Schema decisions:
 
 - **`id`** — Stable for idempotent upserts
-- **`searchText`** — Aggregates searchable content
-- **`reactionCount` / `viewCount`** — Can be used as ranking signals
-- **`sourceUrl`** — Enables traceability
+- **`searchText`** — Aggregates searchable content into a single field
+- **`reactionCount` / `viewCount`** — Preserved as potential ranking signals
+- **`sourceUrl`** — Supports traceability back to the source system
+- **`fetchedAt`** — Records ingestion time for observability and reprocessing analysis
 
----
-
-## Reliability and error handling
+### Reliability and error handling
 
 The connector is designed to ensure no data is missed, even under unstable API conditions.
 
-### Key guarantees
+Key guarantees:
 
-1. **Deterministic pagination** — Uses `limit` and `skip` to ensure full dataset coverage
-2. **Checkpointing** — Progress is stored in a file (`checkpoint.json`); checkpoints are only updated after successful processing; safe resume after failure
-3. **At-least-once processing** — Data may be reprocessed; data is never skipped
-4. **Retry strategy** — Retries on HTTP 429, HTTP 5xx, and network failures; exponential backoff with jitter
-5. **Rate limiting** — Enforces requests per minute, configured below API threshold for safety
-6. **Retry-After handling** — Honors server-provided retry delays when available
-7. **Fail-safe behavior** — Stops processing if a page cannot be safely fetched; prevents advancing checkpoint on failure
+1. **Deterministic pagination with response validation** — Uses `limit` and `skip`, and validates API metadata (`skip`, `limit`, `total`) before processing
+2. **Checkpointing after successful write** — Checkpoint advances only after documents are persisted
+3. **At-least-once processing** — Data may be reprocessed; data is never intentionally skipped
+4. **Retry strategy** — Retries on typed retryable failures (`429`, `5xx`, network/deserialization); exponential backoff with jitter
+5. **Retry-After handling** — Honors server-provided `Retry-After` when present
+6. **Rate limiting** — Enforces requests per minute, configured below API threshold for safety
+7. **Atomic checkpoint updates** — Uses temp file + move to avoid partial checkpoint writes
+8. **Fail-closed behavior** — Corrupt checkpoint or unsafe pages fail the run instead of silently continuing
+
+### Tradeoffs
+
+Chosen tradeoffs:
+
+- File-based checkpointing for simplicity and reliability
+- Sequential processing to prioritize correctness over throughput
+- Explicit retry logic for transparency and control
+- Minimal dependencies to keep the operational model easy to understand
+
+Deferred tradeoffs:
+
+- Parallel processing, which would require coordinated rate limiting and more complex failure handling
+- Distributed queues such as Kafka or Service Bus
+- A circuit breaker framework for upstream instability
+- Database-backed checkpoint persistence
+- A full plugin system for multiple content sources
 
 ---
 
@@ -124,40 +162,28 @@ Tests focus on validating core behavior rather than superficial coverage.
 | Test | Purpose |
 | --- | --- |
 | **Mapper** | Validates transformation from source model to document |
-| **Retry** | Ensures retry logic works under failure conditions |
-| **Crawler** | Ensures checkpoint updates only after successful processing; verifies pagination behavior |
+| **Retry executor** | Validates retry behavior, retry limits, argument validation, and `Retry-After` handling |
+| **Crawler** | Ensures checkpoint updates only after successful processing; verifies pagination behavior and resume safety |
+| **Page validator** | Validates response metadata contract and rejects unsafe page states |
+| **HTTP client** | Verifies classification of `429`/`5xx`/`4xx` and malformed payload behavior |
+| **Rate limiter** | Verifies request spacing and configuration validation |
+| **Checkpoint store** | Verifies checkpoint persistence, fail-closed loading, and negative-skip rejection |
 
 ### Strategy
 
 - Use deterministic inputs
 - Mock external dependencies
 - Validate behavior, not just structure
+- Prioritize production failure modes (rate limits, unstable upstreams, crash/restart recovery, and state corruption)
 
 ---
 
-## Design tradeoffs
+## What I'd add with more time
 
-### Chosen
+With additional time, the connector could include:
 
-- File-based checkpointing (simple and reliable)
-- Sequential processing (correctness over complexity)
-- Explicit retry logic (transparency and control)
-- Minimal dependencies (clarity over abstraction)
-
-### Deferred
-
-- Parallel processing (would require coordinated rate limiting)
-- Distributed queues (e.g., Kafka, Service Bus)
-- Circuit breaker framework
-- Database persistence for checkpoints
-- Full plugin system
-
----
-
-## Future improvements
-
-If extended further, the connector could include:
-
+- Additional integration tests for client HTTP behavior (`429`, `5xx`, malformed payloads, retry-after timing)
+- End-to-end crash/restart test proving full replay + resume behavior
 - Incremental sync using timestamps (if API supports it)
 - Support for additional endpoints (comments, users)
 - Parallel fetching with shared rate limiter

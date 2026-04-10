@@ -11,7 +11,7 @@ import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.List;
 
-public class JsonlDocumentWriter {
+public class JsonlDocumentWriter implements DocumentSink<ConnectorDocument> {
     private final ObjectMapper objectMapper;
 
     public JsonlDocumentWriter() {
@@ -19,6 +19,7 @@ public class JsonlDocumentWriter {
         this.objectMapper.registerModule(new JavaTimeModule());
     }
 
+    @Override
     public void writeDocuments(Path outputFile, List<ConnectorDocument> documents) throws IOException {
         if (documents == null || documents.isEmpty()) {
             return;

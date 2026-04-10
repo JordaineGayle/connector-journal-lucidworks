@@ -2,8 +2,12 @@ package com.jordaine.connector.client;
 
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.jordaine.connector.error.NonRetryableConnectorException;
+import com.jordaine.connector.error.RetryableConnectorException;
 import com.jordaine.connector.model.PostsResponse;
 import com.jordaine.connector.util.RateLimiter;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.net.URI;
@@ -12,7 +16,9 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 
-public class DummyJsonClient {
+public class DummyJsonClient implements PostsClient {
+    private static final Logger LOGGER = LoggerFactory.getLogger(DummyJsonClient.class);
+
     private final HttpClient httpClient;
     private final ObjectMapper objectMapper;
     private final String baseUrl;
@@ -32,7 +38,8 @@ public class DummyJsonClient {
         this.rateLimiter = rateLimiter;
     }
 
-    public PostsResponse fetchPosts(int limit, int skip) throws IOException, InterruptedException {
+    @Override
+    public PostsResponse fetchPosts(int limit, int skip) throws Exception {
         rateLimiter.acquire();
 
         String url = baseUrl + postsEndpoint + "?limit=" + limit + "&skip=" + skip;
@@ -44,34 +51,48 @@ public class DummyJsonClient {
                 .header("Accept", "application/json")
                 .build();
 
-        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+        HttpResponse<String> response;
+        try {
+            response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+        } catch (IOException ex) {
+            throw new RetryableConnectorException("Network failure while fetching posts", ex);
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            throw ex;
+        }
 
         int statusCode = response.statusCode();
 
         if (statusCode == 429) {
             String retryAfterHeader = response.headers().firstValue("Retry-After").orElse(null);
+            Duration retryAfter = parseRetryAfter(retryAfterHeader);
 
-            if (retryAfterHeader != null && !retryAfterHeader.isBlank()) {
-                try {
-                    long retryAfterSeconds = Long.parseLong(retryAfterHeader.trim());
-                    long delayMillis = retryAfterSeconds * 1000L;
-                    System.out.println("429 received. Respecting Retry-After for " + delayMillis + " ms.");
-                    Thread.sleep(delayMillis);
-                } catch (NumberFormatException ex) {
-                    System.out.println("429 received with non-numeric Retry-After header: " + retryAfterHeader);
-                }
+            if (retryAfter != null) {
+                LOGGER.warn("429 received. Retry-After header {} ms.", retryAfter.toMillis());
             } else {
-                System.out.println("429 received. No Retry-After header returned.");
+                LOGGER.warn("429 received. No parsable Retry-After header.");
             }
 
-            throw new IOException("HTTP 429 Too Many Requests");
+            throw new RetryableConnectorException("HTTP 429 Too Many Requests", retryAfter);
+        }
+
+        if (statusCode >= 500 && statusCode <= 599) {
+            throw new RetryableConnectorException(
+                    "Failed to fetch posts. HTTP " + statusCode + ". Body: " + response.body()
+            );
         }
 
         if (statusCode < 200 || statusCode >= 300) {
-            throw new IOException("Failed to fetch posts. HTTP " + statusCode + ". Body: " + response.body());
+            throw new NonRetryableConnectorException(
+                    "Failed to fetch posts. HTTP " + statusCode + ". Body: " + response.body()
+            );
         }
 
-        return objectMapper.readValue(response.body(), PostsResponse.class);
+        try {
+            return objectMapper.readValue(response.body(), PostsResponse.class);
+        } catch (IOException ex) {
+            throw new RetryableConnectorException("Failed to deserialize posts response", ex);
+        }
     }
 
     private String stripTrailingSlash(String value) {
@@ -90,5 +111,21 @@ public class DummyJsonClient {
         }
 
         return value.startsWith("/") ? value : "/" + value;
+    }
+
+    private Duration parseRetryAfter(String retryAfterHeader) {
+        if (retryAfterHeader == null || retryAfterHeader.isBlank()) {
+            return null;
+        }
+
+        try {
+            long retryAfterSeconds = Long.parseLong(retryAfterHeader.trim());
+            if (retryAfterSeconds < 0) {
+                return null;
+            }
+            return Duration.ofSeconds(retryAfterSeconds);
+        } catch (NumberFormatException ex) {
+            return null;
+        }
     }
 }

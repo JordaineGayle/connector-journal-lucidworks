@@ -22,9 +22,9 @@ class PostDocumentMapperTest {
 
         post.setReactions(10); // triggers setter
 
-        PostDocumentMapper mapper = new PostDocumentMapper();
+        PostDocumentMapper mapper = new PostDocumentMapper("https://dummyjson.com", "/posts");
 
-        ConnectorDocument doc = mapper.map(post, "https://dummyjson.com");
+        ConnectorDocument doc = mapper.map(post);
 
         assertEquals("post-1", doc.getId());
         assertEquals("post", doc.getSourceType());

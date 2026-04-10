@@ -24,6 +24,31 @@ public class ConnectorConfig {
             Path checkpointFile,
             Path outputFile
     ) {
+        if (baseUrl == null || baseUrl.isBlank()) {
+            throw new IllegalArgumentException("baseUrl must not be blank");
+        }
+        if (postsEndpoint == null || postsEndpoint.isBlank()) {
+            throw new IllegalArgumentException("postsEndpoint must not be blank");
+        }
+        if (pageSize <= 0) {
+            throw new IllegalArgumentException("pageSize must be > 0");
+        }
+        if (maxRetries < 0) {
+            throw new IllegalArgumentException("maxRetries must be >= 0");
+        }
+        if (initialBackoff == null || initialBackoff.isNegative()) {
+            throw new IllegalArgumentException("initialBackoff must be >= 0");
+        }
+        if (requestsPerMinute <= 0) {
+            throw new IllegalArgumentException("requestsPerMinute must be > 0");
+        }
+        if (checkpointFile == null) {
+            throw new IllegalArgumentException("checkpointFile must not be null");
+        }
+        if (outputFile == null) {
+            throw new IllegalArgumentException("outputFile must not be null");
+        }
+
         this.baseUrl = baseUrl;
         this.postsEndpoint = postsEndpoint;
         this.pageSize = pageSize;
@@ -67,7 +92,12 @@ public class ConnectorConfig {
         if (value == null || value.isBlank()) {
             return defaultValue;
         }
-        return Integer.parseInt(value);
+
+        try {
+            return Integer.parseInt(value);
+        } catch (NumberFormatException ex) {
+            throw new IllegalArgumentException("Environment variable " + key + " must be an integer", ex);
+        }
     }
 
     private static long getEnvLong(String key, long defaultValue) {
@@ -75,7 +105,12 @@ public class ConnectorConfig {
         if (value == null || value.isBlank()) {
             return defaultValue;
         }
-        return Long.parseLong(value);
+
+        try {
+            return Long.parseLong(value);
+        } catch (NumberFormatException ex) {
+            throw new IllegalArgumentException("Environment variable " + key + " must be a long", ex);
+        }
     }
 
     public String getBaseUrl() {

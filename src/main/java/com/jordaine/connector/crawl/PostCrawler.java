@@ -1,32 +1,38 @@
 package com.jordaine.connector.crawl;
 
-import com.jordaine.connector.client.DummyJsonClient;
+import com.jordaine.connector.client.PostsClient;
 import com.jordaine.connector.config.ConnectorConfig;
 import com.jordaine.connector.model.ConnectorDocument;
 import com.jordaine.connector.model.DummyJsonPost;
 import com.jordaine.connector.model.PostsResponse;
-import com.jordaine.connector.output.JsonlDocumentWriter;
-import com.jordaine.connector.transform.PostDocumentMapper;
+import com.jordaine.connector.output.DocumentSink;
+import com.jordaine.connector.transform.DocumentMapper;
 import com.jordaine.connector.util.RetryExecutor;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.List;
 
 public class PostCrawler {
-    private final DummyJsonClient client;
-    private final PostDocumentMapper mapper;
-    private final JsonlDocumentWriter writer;
+    private static final Logger LOGGER = LoggerFactory.getLogger(PostCrawler.class);
+
+    private final PostsClient client;
+    private final DocumentMapper<DummyJsonPost, ConnectorDocument> mapper;
+    private final DocumentSink<ConnectorDocument> writer;
     private final RetryExecutor retryExecutor;
     private final ConnectorConfig config;
     private final CrawlCheckpointStore checkpointStore;
+    private final PostsPageValidator pageValidator;
 
     public PostCrawler(
-            DummyJsonClient client,
-            PostDocumentMapper mapper,
-            JsonlDocumentWriter writer,
+            PostsClient client,
+            DocumentMapper<DummyJsonPost, ConnectorDocument> mapper,
+            DocumentSink<ConnectorDocument> writer,
             RetryExecutor retryExecutor,
             ConnectorConfig config,
-            CrawlCheckpointStore checkpointStore
+            CrawlCheckpointStore checkpointStore,
+            PostsPageValidator pageValidator
     ) {
         this.client = client;
         this.mapper = mapper;
@@ -34,6 +40,7 @@ public class PostCrawler {
         this.retryExecutor = retryExecutor;
         this.config = config;
         this.checkpointStore = checkpointStore;
+        this.pageValidator = pageValidator;
     }
 
     public void crawl() throws Exception {
@@ -41,25 +48,29 @@ public class PostCrawler {
         int limit = config.getPageSize();
         int processedCount = 0;
 
-        System.out.println("Starting crawl from checkpoint skip=" + skip);
+        LOGGER.info("Starting crawl from checkpoint skip={}", skip);
 
         while (true) {
             int currentSkip = skip;
 
             PostsResponse response = retryExecutor.execute(
-                    () -> client.fetchPosts(limit, currentSkip),
+                    () -> {
+                        PostsResponse fetched = client.fetchPosts(limit, currentSkip);
+                        pageValidator.validate(currentSkip, limit, fetched);
+                        return fetched;
+                    },
                     config.getMaxRetries(),
                     config.getInitialBackoff()
             );
 
             List<DummyJsonPost> posts = response.getPosts();
-            if (posts == null || posts.isEmpty()) {
+            if (posts.isEmpty()) {
                 break;
             }
 
             List<ConnectorDocument> documents = new ArrayList<>();
             for (DummyJsonPost post : posts) {
-                documents.add(mapper.map(post, config.getBaseUrl()));
+                documents.add(mapper.map(post));
             }
 
             writer.writeDocuments(config.getOutputFile(), documents);
@@ -70,13 +81,13 @@ public class PostCrawler {
             checkpointStore.saveSkip(nextSkip);
             skip = nextSkip;
 
-            System.out.println("Processed " + processedCount + " posts so far. Current skip=" + skip);
+            LOGGER.info("Processed {} posts so far. Current skip={}", processedCount, skip);
 
             if (skip >= response.getTotal()) {
                 break;
             }
         }
 
-        System.out.println("Crawl completed. Total posts written in this run: " + processedCount);
+        LOGGER.info("Crawl completed. Total posts written in this run: {}", processedCount);
     }
 }

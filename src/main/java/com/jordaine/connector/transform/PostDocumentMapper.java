@@ -8,9 +8,15 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.StringJoiner;
 
-public class PostDocumentMapper {
+public class PostDocumentMapper implements DocumentMapper<DummyJsonPost, ConnectorDocument> {
+    private final String sourceUrlPrefix;
 
-    public ConnectorDocument map(DummyJsonPost post, String baseUrl) {
+    public PostDocumentMapper(String baseUrl, String postsEndpoint) {
+        this.sourceUrlPrefix = normalizeBaseUrl(baseUrl) + normalizeEndpoint(postsEndpoint);
+    }
+
+    @Override
+    public ConnectorDocument map(DummyJsonPost post) {
         ConnectorDocument document = new ConnectorDocument();
         document.setId("post-" + post.getId());
         document.setSourceType("post");
@@ -22,7 +28,7 @@ public class PostDocumentMapper {
         document.setReactionCount(post.getReactionCount());
         document.setViewCount(post.getViews());
         document.setSearchText(buildSearchText(post));
-        document.setSourceUrl(buildSourceUrl(baseUrl, post.getId()));
+        document.setSourceUrl(buildSourceUrl(post.getId()));
         document.setFetchedAt(Instant.now());
         return document;
     }
@@ -54,9 +60,28 @@ public class PostDocumentMapper {
         return String.join(" ", parts);
     }
 
-    private String buildSourceUrl(String baseUrl, int postId) {
+    private String buildSourceUrl(int postId) {
+        return sourceUrlPrefix + "/" + postId;
+    }
+
+    private String normalizeBaseUrl(String baseUrl) {
+        if (baseUrl == null || baseUrl.isBlank()) {
+            throw new IllegalArgumentException("baseUrl must not be blank");
+        }
+
         return baseUrl.endsWith("/")
-                ? baseUrl + "posts/" + postId
-                : baseUrl + "/posts/" + postId;
+                ? baseUrl.substring(0, baseUrl.length() - 1)
+                : baseUrl;
+    }
+
+    private String normalizeEndpoint(String endpoint) {
+        if (endpoint == null || endpoint.isBlank()) {
+            throw new IllegalArgumentException("postsEndpoint must not be blank");
+        }
+
+        String normalizedEndpoint = endpoint.startsWith("/") ? endpoint : "/" + endpoint;
+        return normalizedEndpoint.endsWith("/")
+                ? normalizedEndpoint.substring(0, normalizedEndpoint.length() - 1)
+                : normalizedEndpoint;
     }
 }
