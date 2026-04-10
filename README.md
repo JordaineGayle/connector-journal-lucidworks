@@ -30,9 +30,22 @@ The focus is working code with clear design, and the sections below document the
 
 ### Run the connector
 
+Run the connector with the default configuration:
+
 ```bash
 ./gradlew run
 ```
+
+With the default DummyJSON source, a fresh run starts at `skip=0`, crawls all available posts, and writes the transformed documents to `output/posts.jsonl`. Progress is checkpointed in `data/checkpoint.json`.
+
+Expected behavior on a fresh run:
+
+- The crawler logs progress in batches of 20 posts
+- The final run completes after processing 251 posts
+- The output is written as JSON Lines documents to `output/posts.jsonl`
+- The checkpoint file is updated so a later run can resume safely
+
+If the checkpoint already exists, the connector resumes from the saved `skip` value instead of reprocessing from the beginning. For a clean end-to-end run with the defaults, remove `data/checkpoint.json` and `output/posts.jsonl` before running again.
 
 ### Run tests
 
